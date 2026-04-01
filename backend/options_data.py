@@ -49,7 +49,13 @@ def fetch_surface_data(
         except Exception:
             continue
 
+        if chain is None:
+            continue
+            
         opts = chain.calls if option_type == "call" else chain.puts
+        
+        if opts is None or opts.empty:
+            continue
 
         for _, row in opts.iterrows():
             strike = float(row["strike"])
@@ -70,13 +76,19 @@ def fetch_surface_data(
             else:
                 continue
 
-            # Filter illiquid options
-            if volume == 0 and open_interest == 0:
+            # Filter illiquid options – require meaningful activity
+            if open_interest < 10 and volume < 5:
                 continue
 
-            # Filter strikes too far from spot (>80% away)
+            # Skip wide bid-ask spreads (unreliable mid-price)
+            if bid > 0 and ask > 0 and ask > 0:
+                spread_pct = (ask - bid) / mid_price
+                if spread_pct > 0.6:
+                    continue
+
+            # Filter strikes too far from spot
             moneyness = strike / spot_price
-            if moneyness < 0.2 or moneyness > 3.0:
+            if moneyness < 0.5 or moneyness > 2.0:
                 continue
 
             iv = implied_volatility(
@@ -88,7 +100,7 @@ def fetch_surface_data(
                 option_type=option_type,
             )
 
-            if iv is not None and 0.01 <= iv <= 3.0:
+            if iv is not None and 0.01 <= iv <= 2.0:
                 surface_data.append(
                     {
                         "strike": round(strike, 2),
@@ -98,6 +110,14 @@ def fetch_surface_data(
                         "mid_price": round(mid_price, 2),
                     }
                 )
+
+    # ── IQR-based outlier removal ────────────────────────────────
+    if surface_data:
+        ivs = np.array([d["iv"] for d in surface_data])
+        q1, q3 = np.percentile(ivs, 25), np.percentile(ivs, 75)
+        iqr = q3 - q1
+        lower, upper = q1 - 2.0 * iqr, q3 + 2.0 * iqr
+        surface_data = [d for d in surface_data if lower <= d["iv"] <= upper]
 
     return {
         "spot_price": round(spot_price, 2),

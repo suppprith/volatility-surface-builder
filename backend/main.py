@@ -1,8 +1,14 @@
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from curl_cffi import requests as cf_requests
+from yfinance.data import YfData
 
 from risk_free_rate import get_risk_free_rate
 from options_data import fetch_surface_data
+
+# curl_cffi (used by yfinance) cannot verify SSL on some systems (e.g. corporate proxies).
+# Inject a session with verify=False so all yfinance calls succeed.
+YfData(session=cf_requests.Session(impersonate="chrome", verify=False))
 
 app = FastAPI(title="Volatility Surface Builder", version="1.0.0")
 
